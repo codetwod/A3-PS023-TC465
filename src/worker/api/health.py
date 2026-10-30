@@ -1,5 +1,5 @@
-"""Basic worker health and resource endpoints."""
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
+from worker.auth import require_controller
 from fastapi.responses import JSONResponse
 from worker.api.vms import Backend
 
@@ -13,6 +13,6 @@ async def health(request: Request):
                         content={"status": "ok" if ready else "not_ready"})
 
 
-@router.get("/resources")
+@router.get("/resources", dependencies=[Depends(require_controller)])
 async def resources(backend: Backend):
     return await backend.resources()

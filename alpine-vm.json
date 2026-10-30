@@ -1,0 +1,8 @@
+{
+  "vm_id": "alpine-demo",
+  "cpus": 1,
+  "memory_mib": 512,
+  "kernel_path": "/home/hash/worker-images/vmlinux",
+  "disk_path": "/home/hash/worker-images/alpine.raw",
+  "cmdline": "console=ttyS0 root=/dev/vda rootfstype=ext4 rw init=/bin/sh"
+} 

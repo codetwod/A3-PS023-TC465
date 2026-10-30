@@ -4,8 +4,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request, stat
 
 from worker.api import WorkerBackend
 from worker.models import VMCreate, VM_ID_PATTERN
+from worker.auth import require_controller
 
-router = APIRouter(prefix="/vms", tags=["vms"])
+router = APIRouter(prefix="/vms", tags=["vms"], dependencies=[Depends(require_controller)])
 
 
 def get_backend(request: Request) -> WorkerBackend:
