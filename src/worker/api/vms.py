@@ -1,8 +1,9 @@
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request, status
 
 from worker.api import WorkerBackend
+from worker.models import VMCreate, VM_ID_PATTERN
 
 router = APIRouter(prefix="/vms", tags=["vms"])
 
@@ -20,18 +21,13 @@ def get_backend(request: Request) -> WorkerBackend:
 Backend = Annotated[WorkerBackend, Depends(get_backend)]
 VMId = Annotated[
     str,
-    Path(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$"),
+    Path(min_length=1, max_length=64, pattern=VM_ID_PATTERN),
 ]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_vm(payload: Annotated[dict[str, Any], Body()], backend: Backend):
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="VM configuration must not be empty",
-        )
-    return await backend.create_vm(payload)
+async def create_vm(payload: Annotated[VMCreate, Body()], backend: Backend):
+    return await backend.create_vm(payload.model_dump(mode="json"))
 
 
 @router.get("")
