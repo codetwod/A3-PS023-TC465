@@ -1,10 +1,13 @@
 """Best-effort worker-to-controller reporting, independent of VM request handling."""
 import asyncio
 from contextlib import suppress
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 
 import httpx
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from worker.api import WorkerBackend
 from worker.config import Settings
@@ -17,6 +20,12 @@ class HeartbeatReporter:
         self.settings = settings
         self.backend = backend
         self.task: asyncio.Task | None = None
+        self.signing_key = None
+        if settings.heartbeat_private_key_path is not None:
+            self.signing_key = serialization.load_pem_private_key(
+                settings.heartbeat_private_key_path.read_bytes(), password=None)
+            if not isinstance(self.signing_key, RSAPrivateKey) or self.signing_key.key_size < 2048:
+                raise ValueError("Heartbeat signing requires an RSA private key of at least 2048 bits")
 
     def start(self) -> None:
         if self.task is not None:
@@ -32,7 +41,14 @@ class HeartbeatReporter:
 
     async def send_once(self, client: httpx.AsyncClient) -> None:
         # Reload the externally issued JWT so it can be renewed without restarting.
-        token = self.settings.heartbeat_token_path.read_text().strip()
+        if self.signing_key is not None:
+            timestamp = datetime.now(timezone.utc)
+            token = jwt.encode({"iss": self.settings.heartbeat_issuer,
+                "aud": self.settings.heartbeat_audience, "sub": self.settings.worker_id,
+                "iat": timestamp, "exp": timestamp + timedelta(minutes=5)},
+                self.signing_key, algorithm="RS256")
+        else:
+            token = self.settings.heartbeat_token_path.read_text().strip()
         if not token or any(char.isspace() for char in token):
             raise ValueError("Heartbeat credential file is empty or malformed")
         async with asyncio.timeout(self.settings.heartbeat_timeout):

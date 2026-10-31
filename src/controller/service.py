@@ -13,8 +13,9 @@ def now():
 
 
 class Controller:
-    def __init__(self, settings, store, client):
+    def __init__(self, settings, store, client, auth=None):
         self.settings, self.store, self.client = settings, store, client
+        self.auth = auth
 
     async def request(self, worker_id, method, path, **kwargs):
         headers = {}
@@ -27,6 +28,8 @@ class Controller:
                 headers["Authorization"] = "Bearer " + token
             except (OSError, ValueError) as exc:
                 raise HTTPException(503, "Worker credential unavailable") from exc
+        elif self.auth is not None:
+            headers["Authorization"] = "Bearer " + self.auth.worker_token(worker_id)
         try:
             response = await self.client.request(
                 method, self.settings.workers[worker_id].rstrip("/") + path,
@@ -64,7 +67,7 @@ class Controller:
                            "heartbeat_stale": stale, "heartbeat": report})
         return result
 
-    async def create(self, payload):
+    async def create(self, payload, user=None):
         async with self.store.mutation():
             if await self.store.get(payload.vm_id):
                 raise HTTPException(409, "VM ID already exists")
@@ -74,6 +77,7 @@ class Controller:
                 raise HTTPException(503, "No healthy worker has sufficient allocatable memory")
             candidates.sort(key=lambda worker: (-worker["resources"]["allocatable_memory_mib"], worker["worker_id"]))
             record = {"vm_id": payload.vm_id, "worker_id": candidates[0]["worker_id"],
+                      "owner_id": user["sub"] if user else None,
                       "config": payload.model_dump(), "state": "creating", "created_at": now(),
                       "updated_at": now(), "worker_vm": None, "last_error": None}
             # Persist assignment before sending: uncertain creates must never fail over.
@@ -93,15 +97,17 @@ class Controller:
         await self.store.put(record)
         return record
 
-    async def get_record(self, vm_id):
+    async def get_record(self, vm_id, user=None):
         record = await self.store.get(vm_id)
         if record is None:
             raise HTTPException(404, "VM not found")
+        if user and user["role"] != "admin" and record.get("owner_id") != user["sub"]:
+            raise HTTPException(404, "VM not found")
         return record
 
-    async def action(self, vm_id, action):
+    async def action(self, vm_id, action, user=None):
         async with self.store.mutation():
-            record = await self.get_record(vm_id)
+            record = await self.get_record(vm_id, user)
             record.update(state={"start": "starting", "stop": "stopping"}[action], updated_at=now())
             await self.store.put(record)
             return await self.perform(record, "POST", f"/vms/{vm_id}/{action}")
@@ -129,10 +135,13 @@ class Controller:
             await self.store.put(record)
         return records
 
-    async def details(self, vm_id):
+    async def details(self, vm_id, user=None):
         async with self.store.mutation():
-            return (await self.refresh([await self.get_record(vm_id)]))[0]
+            return (await self.refresh([await self.get_record(vm_id, user)]))[0]
 
-    async def reconcile(self):
+    async def reconcile(self, user=None):
         async with self.store.mutation():
-            return await self.refresh(await self.store.all())
+            records = await self.store.all()
+            if user and user["role"] != "admin":
+                records = [r for r in records if r.get("owner_id") == user["sub"]]
+            return await self.refresh(records)

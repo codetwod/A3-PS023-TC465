@@ -2,6 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager
 import copy
 import unittest
+import tempfile
+import time
+import jwt
+from controller_support import auth_files
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -134,6 +138,11 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
 class FakeRedis:
     def __init__(self):
         self.hashes = {}
+        self.counts = {}
+
+    async def eval(self, script, number, key):
+        self.counts[key] = self.counts.get(key, 0) + 1
+        return self.counts[key]
 
     async def ping(self):
         return True
@@ -161,20 +170,29 @@ class FakeRedis:
 class APITests(unittest.TestCase):
     def test_heartbeat_registration_boundary_and_receive_time(self):
         database = FakeRedis()
-        settings = Settings(workers={"one": "http://one"})
-        app = create_app(settings, redis=database)
-        with TestClient(app) as client:
-            self.assertEqual(client.get("/health").status_code, 200)
-            payload = {"worker_id": "one", "worker_url": "http://one", "status": "ready",
-                       "sent_at": "2000-01-01T00:00:00Z", "resources": {
-                           "total_memory_mib": 4096, "host_reserve_mib": 512,
-                           "committed_memory_mib": 0, "allocatable_memory_mib": 3584}}
-            self.assertEqual(client.post("/workers/one/heartbeat", json=payload).status_code, 204)
-            self.assertIn("received_at", database.hashes["controller:heartbeats"]["one"])
-            self.assertEqual(client.post("/workers/other/heartbeat", json=payload).status_code, 404)
-            payload["worker_url"] = "http://untrusted"
-            self.assertEqual(client.post("/workers/one/heartbeat", json=payload).status_code, 422)
-            self.assertEqual(client.get("/vms/absent").status_code, 404)
+        with tempfile.TemporaryDirectory() as directory:
+            config, _, heartbeat_key, _ = auth_files(directory)
+            settings = Settings(workers={"one": "http://one"}, **config)
+            app = create_app(settings, redis=database)
+            with TestClient(app) as client:
+                self.check_heartbeat(client, database, heartbeat_key)
+
+    def check_heartbeat(self, client, database, heartbeat_key):
+        timestamp = int(time.time())
+        headers = {"Authorization": "Bearer " + jwt.encode({"iss": "worker-heartbeats",
+            "aud": "vm-controller-heartbeats", "sub": "one", "iat": timestamp,
+            "exp": timestamp + 300}, heartbeat_key, algorithm="RS256")}
+        self.assertEqual(client.get("/health").status_code, 200)
+        payload = {"worker_id": "one", "worker_url": "http://one", "status": "ready",
+                   "sent_at": "2000-01-01T00:00:00Z", "resources": {
+                       "total_memory_mib": 4096, "host_reserve_mib": 512,
+                       "committed_memory_mib": 0, "allocatable_memory_mib": 3584}}
+        self.assertEqual(client.post("/workers/one/heartbeat", json=payload, headers=headers).status_code, 204)
+        self.assertIn("received_at", database.hashes["controller:heartbeats"]["one"])
+        self.assertEqual(client.post("/workers/other/heartbeat", json=payload, headers=headers).status_code, 401)
+        payload["worker_url"] = "http://untrusted"
+        self.assertEqual(client.post("/workers/one/heartbeat", json=payload, headers=headers).status_code, 422)
+        self.assertEqual(client.get("/vms/absent").status_code, 401)
 
     def test_store_roundtrip(self):
         async def run():

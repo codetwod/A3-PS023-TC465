@@ -1,6 +1,8 @@
 # Cloud Hypervisor worker - part 1
 
 The Redis-backed controller is documented in [controller/README.md](controller/README.md).
+For authenticated deployment with automatic token signing in both directions,
+follow [controller/AUTH_SETUP.md](controller/AUTH_SETUP.md).
 
 One Linux worker exposes VM create, start, stop, list, health, and memory capacity
 over HTTP. It launches one Cloud Hypervisor process per active VM and communicates
@@ -139,12 +141,21 @@ paste the token. For a remote worker, replace the URL with its HTTPS endpoint.
 HTTP examples are for loopback testing only; JWT signing does not encrypt traffic.
 HTTPS configuration is not added by this change. Keep clocks synchronized.
 
-There is no token issuance/login endpoint on the worker. Controller token issuance,
-automatic renewal, revocation, key rotation overlap, registration, and heartbeats
-are separate work. A stolen bearer token remains usable until expiry. Do not
+There is no token issuance/login endpoint on the worker. The controller now provides
+user login and automatically signs short-lived worker tokens. Revocation and key
+rotation overlap remain separate work. A stolen bearer token remains usable until expiry. Do not
 commit private keys or tokens. `.pem`, `.key`, and `.env` files are ignored by Git.
 
 ## Controller heartbeats
+
+The worker can now sign a fresh five-minute JWT for each heartbeat: set
+`WORKER_HEARTBEAT_PRIVATE_KEY_PATH` instead of `WORKER_HEARTBEAT_TOKEN_PATH`.
+Use a dedicated worker key, and configure its public key in the controller's
+`CONTROLLER_HEARTBEAT_PUBLIC_KEY_PATHS` mapping. Defaults are issuer
+`worker-heartbeats`, audience `vm-controller-heartbeats`, and subject `WORKER_ID`.
+Issuer/audience can be overridden with `WORKER_HEARTBEAT_ISSUER` and
+`WORKER_HEARTBEAT_AUDIENCE`. The controller verifies signature, claims, and identity.
+The token-file mode below remains supported for externally issued credentials.
 
 Optional: set `WORKER_HEARTBEAT_URL` to enable background reporting. Without it,
 the worker continues to operate independently. Registration is not implemented.

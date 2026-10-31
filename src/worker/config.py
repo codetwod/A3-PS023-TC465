@@ -22,6 +22,9 @@ class Settings:
     worker_id: str = "worker-1"
     advertised_url: str | None = None
     heartbeat_token_path: Path | None = None
+    heartbeat_private_key_path: Path | None = None
+    heartbeat_issuer: str = "worker-heartbeats"
+    heartbeat_audience: str = "vm-controller-heartbeats"
     heartbeat_interval: float = 10.0
     heartbeat_timeout: float = 5.0
 
@@ -38,8 +41,12 @@ class Settings:
         if self.heartbeat_url is not None:
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", self.worker_id):
                 raise ValueError("WORKER_ID must be a valid worker identifier")
-            if self.heartbeat_token_path is None or not self.advertised_url:
-                raise ValueError("Heartbeat requires WORKER_HEARTBEAT_TOKEN_PATH and WORKER_ADVERTISED_URL")
+            if (self.heartbeat_token_path is None and self.heartbeat_private_key_path is None) or not self.advertised_url:
+                raise ValueError("Heartbeat requires a token file or signing key and WORKER_ADVERTISED_URL")
+            if self.heartbeat_token_path is not None and self.heartbeat_private_key_path is not None:
+                raise ValueError("Configure only one heartbeat credential source")
+            if not self.heartbeat_issuer.strip() or not self.heartbeat_audience.strip():
+                raise ValueError("Heartbeat issuer and audience must not be empty")
             for url in (self.heartbeat_url, self.advertised_url):
                 parsed = urlsplit(url)
                 if (parsed.scheme not in ("http", "https") or not parsed.hostname
@@ -70,6 +77,10 @@ class Settings:
             advertised_url=os.environ.get("WORKER_ADVERTISED_URL") or None,
             heartbeat_token_path=Path(os.environ["WORKER_HEARTBEAT_TOKEN_PATH"])
                 if os.environ.get("WORKER_HEARTBEAT_TOKEN_PATH") else None,
+            heartbeat_private_key_path=Path(os.environ["WORKER_HEARTBEAT_PRIVATE_KEY_PATH"])
+                if os.environ.get("WORKER_HEARTBEAT_PRIVATE_KEY_PATH") else None,
+            heartbeat_issuer=os.environ.get("WORKER_HEARTBEAT_ISSUER", "worker-heartbeats"),
+            heartbeat_audience=os.environ.get("WORKER_HEARTBEAT_AUDIENCE", "vm-controller-heartbeats"),
             heartbeat_interval=float(os.environ.get("WORKER_HEARTBEAT_INTERVAL", "10")),
             heartbeat_timeout=float(os.environ.get("WORKER_HEARTBEAT_TIMEOUT", "5")),
         )
