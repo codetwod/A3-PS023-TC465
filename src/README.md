@@ -1,5 +1,7 @@
 # Cloud Hypervisor worker - part 1
 
+The Redis-backed controller is documented in [controller/README.md](controller/README.md).
+
 One Linux worker exposes VM create, start, stop, list, health, and memory capacity
 over HTTP. It launches one Cloud Hypervisor process per active VM and communicates
 over a private Unix socket. API reference:

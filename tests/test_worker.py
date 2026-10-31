@@ -13,6 +13,7 @@ from worker.api import WorkerOperationError
 from worker.backend import CloudHypervisorBackend
 from worker.config import Settings
 from worker.main import create_app
+from worker.auth import require_controller
 
 
 class FakeProcess:
@@ -183,6 +184,10 @@ class ApiTests(unittest.TestCase):
             start_vm=AsyncMock(side_effect=WorkerOperationError(404, "VM not found")),
         )
         app = create_app(Settings(), backend)
+        app.dependency_overrides[require_controller] = lambda: {"sub": "controller"}
+        verifier_patch = patch("worker.main.JWTVerifier")
+        verifier_patch.start()
+        self.addCleanup(verifier_patch.stop)
         with TestClient(app) as client:
             self.assertEqual(client.get("/health").status_code, 200)
             self.assertEqual(client.get("/vms").json(), [])
@@ -201,7 +206,9 @@ class ApiTests(unittest.TestCase):
         self.assertFalse(app.state.ready)
 
     def test_not_ready(self):
-        client = TestClient(create_app())
+        app = create_app()
+        app.dependency_overrides[require_controller] = lambda: {"sub": "controller"}
+        client = TestClient(app)
         self.assertEqual(client.get("/health").status_code, 503)
         self.assertEqual(client.get("/resources").status_code, 503)
 
