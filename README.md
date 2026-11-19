@@ -1,12 +1,2 @@
-# AIORI-3-HACKATHON-PROJECTS
-This repository will contain the code and resources for the AIORI-3 hackathon that will be developed during the AIORI-3
-
-<<<<<<< Updated upstream
 Team intro Youtube link: https://youtu.be/QbxxaB7jzTg
-Demo video:https://youtu.be/KD9in2qchLE
-Worker implementation and Linux setup: [src/README.md](src/README.md).
-=======
-Youtube link: https://youtu.be/QbxxaB7jzTg
-
-Worker implementation and Linux setup: [src/README.md](src/README.md).
->>>>>>> Stashed changes
+Demo video: https://youtu.be/KD9in2qchLE
